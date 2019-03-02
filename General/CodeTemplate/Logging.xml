@@ -1,0 +1,157 @@
+<codeTemplateLibrary version="3.7.0">
+  <id>0436fbb7-67d6-431b-8e7b-30e41fb02481</id>
+  <name>Logging</name>
+  <revision>3</revision>
+  <lastModified>
+    <time>1550563538134</time>
+    <timezone>Australia/Brisbane</timezone>
+  </lastModified>
+  <description>Logging Templates</description>
+  <includeNewChannels>true</includeNewChannels>
+  <enabledChannelIds>
+    <string>b8506c3f-168a-4d79-8e81-4e1fdeca5e99</string>
+  </enabledChannelIds>
+  <disabledChannelIds/>
+  <codeTemplates>
+    <codeTemplate version="3.7.0">
+      <id>d8ccbe38-c486-4460-bc9b-f8efeeac90a9</id>
+      <name>PerChannelLogging</name>
+      <revision>3</revision>
+      <lastModified>
+        <time>1550563296210</time>
+        <timezone>Australia/Brisbane</timezone>
+      </lastModified>
+      <contextSet>
+        <delegate>
+          <contextType>DESTINATION_RESPONSE_TRANSFORMER</contextType>
+          <contextType>CHANNEL_PREPROCESSOR</contextType>
+          <contextType>CHANNEL_POSTPROCESSOR</contextType>
+          <contextType>CHANNEL_ATTACHMENT</contextType>
+          <contextType>CHANNEL_DEPLOY</contextType>
+          <contextType>SOURCE_RECEIVER</contextType>
+          <contextType>DESTINATION_DISPATCHER</contextType>
+          <contextType>CHANNEL_UNDEPLOY</contextType>
+          <contextType>DESTINATION_FILTER_TRANSFORMER</contextType>
+          <contextType>SOURCE_FILTER_TRANSFORMER</contextType>
+          <contextType>CHANNEL_BATCH</contextType>
+        </delegate>
+      </contextSet>
+      <properties class="com.mirth.connect.model.codetemplates.BasicCodeTemplateProperties">
+        <type>FUNCTION</type>
+        <code>/**
+	Extends standard logging by adding the channel name to the log entries and creating a separate log file for each channel.
+	The general mirth log will still log all messages from all channels.&lt;br/&gt;
+	&lt;br/&gt; 
+	&lt;i&gt;Channel-centric logging is round robin with 10 backups and 2MB file size. These parameters can be changed via the &lt;u&gt;configuration map&lt;/u&gt; by defining the following parameters:
+		&lt;ul&gt;
+			&lt;li&gt;&lt;&lt;b&gt;logFile_size&lt;/b&gt; - defines the logfile size (eg. 500KB, 3MB, 1GB; default: &lt;b&gt;2MB&lt;/b&gt;)&lt;/li&gt;
+			&lt;li&gt;&lt;&lt;b&gt;logFile_backupFiles&lt;/b&gt; - defines the number of backup files (e.g. 5; default: &lt;b&gt;10&lt;/b&gt;)&lt;/li&gt;
+			&lt;li&gt;&lt;&lt;b&gt;logFile_logLevel&lt;/b&gt; - defines the log level (e.g. TRACE, INFO, WARN, ERROR; default: &lt;b&gt;DEBUG&lt;/b&gt;)&lt;/li&gt;
+		&lt;/ul&gt;
+	&lt;/i&gt;
+*/
+function activateChannelLogging() {
+	if(!channelName){
+		channelName = ChannelUtil.getDeployedChannelName(channelId);
+	}
+	if(logger.getName() == &apos;undefined&apos;){
+		return;	
+	}
+	// only modify the logger once
+	if(!logger.getAppender(channelName)){ 
+		
+		logger = org.apache.log4j.Logger.getLogger({
+			&apos;transformer&apos;: channelName + &apos;-transformer&apos;,
+			&apos;preprocessor&apos;: channelName + &apos;-preprocessor&apos;,
+			&apos;postprocessor&apos;: channelName + &apos;-postprocessor&apos;,
+			&apos;deploy&apos;: channelName + &apos;-deploy&apos;,
+			&apos;shutdown&apos;: channelName + &apos;-shutdown&apos;,
+			&apos;filter&apos;: channelName + &apos;-filter&apos;,
+			&apos;db-connector&apos;: channelName + &apos;-db-connector&apos;,
+			&apos;js-connector&apos;: channelName + &apos;-js-connector&apos;,
+			&apos;attachment&apos;: channelName + &apos;-attachment&apos;,
+			&apos;batch&apos;: channelName + &apos;-batch&apos;,
+			&apos;response&apos;: channelName + &apos;-response&apos;
+		}[logger.getName()]);
+		logger.setLevel(org.apache.log4j.Level.toLevel(configurationMap.get(&apos;logFile_logLevel&apos;), org.apache.log4j.Level.DEBUG));
+		
+		//assign the appender to the Logger
+		logger.addAppender(getChannelAppender(channelName));
+	}
+}
+
+/**
+	Provides a rolling file appender for a channel. If it does not yet exist, it will be created.&lt;br/&gt;
+	&lt;br/&gt;	
+	&lt;i&gt;The following parameters can be changed via the &lt;u&gt;configuration map&lt;/u&gt;:
+		&lt;ul&gt;
+			&lt;li&gt;&lt;&lt;b&gt;logFile_size&lt;/b&gt; - defines the logfile size (eg. 500KB, 3MB, 1GB; default: &lt;b&gt;2MB&lt;/b&gt;)&lt;/li&gt;
+			&lt;li&gt;&lt;&lt;b&gt;logFile_backupFiles&lt;/b&gt; - defines the number of backup files (e.g. 5; default: &lt;b&gt;10&lt;/b&gt;)&lt;/li&gt;
+		&lt;/ul&gt;
+	&lt;/i&gt;
+	
+	@param {String} channel - the name of the channel for which the rolling file appender is needed
+	@param {Object} segment - The acc segment
+	@param {string} messageDbKey - The value of the MSH message to be referenced
+	
+  	@return The rolling file appender
+*/
+function getChannelAppender(channel){
+	// if the appender not yet exists, create it
+	if(!globalMap.get(&apos;logAppender_&apos; + channel)){
+		// create a round robin file appender
+		var channelAppender = new org.apache.log4j.RollingFileAppender();
+		// use the channel name as appender name
+		channelAppender.setName(channel);
+		// set the max file size
+		channelAppender.setMaxFileSize(configurationMap.get(&apos;logFile_size&apos;) ? configurationMap.get(&apos;logFile_size&apos;) : &quot;2MB&quot;);
+		// set the max number of backup files
+		channelAppender.setMaxBackupIndex(configurationMap.get(&apos;logFile_backupFiles&apos;) ? configurationMap.get(&apos;logFile_backupFiles&apos;) : 10);
+		// determine the channelAppender name and location
+		channelAppender.setFile(getLoggingPath() + channel + &apos;.log&apos;);
+		// define the logging pattern: &lt;Date&gt; &lt;Priority&gt; &lt;Category&gt; &lt;log-Message&gt;
+		channelAppender.setLayout(new org.apache.log4j.PatternLayout(&quot;%d %-5p %c: %m%n&quot;));
+		// set the logging threshold (trace entries will be ignored)
+		channelAppender.setThreshold(org.apache.log4j.Level.DEBUG);
+		// if preexisting new log entries will be appended
+		channelAppender.setAppend(true);
+		// activate configuration
+		channelAppender.activateOptions();
+		// store the new appender in the channel map
+		globalMap.put(&apos;logAppender_&apos; + channel, channelAppender);
+	}
+	
+	return globalMap.get(&apos;logAppender_&apos; + channel);
+}
+
+/**
+  Determine the logging path that has been defined for log4j
+  
+  @return The configured logging path
+*/
+function getLoggingPath(){
+	var logPath = &apos;&apos;;
+	// get all appenders
+	var appenderList =  org.apache.log4j.Logger.getRootLogger().getAllAppenders();
+	// iterate over them
+	while(appenderList.hasMoreElements()){
+		var appender = appenderList.nextElement();
+		// and look for a file appender
+		if (appender instanceof org.apache.log4j.FileAppender){
+			logPath = appender.getFile();
+			// file appender was found, extract path
+			var index = (logPath.lastIndexOf(&apos;/&apos;) != -1) ? logPath.lastIndexOf(&apos;/&apos;) : logPath.lastIndexOf(&apos;\\&apos;);
+			logPath = logPath.substring(0, index + 1);
+			break;
+		}
+	}	
+
+	return logPath;
+}
+
+// automatically call the function
+activateChannelLogging();</code>
+      </properties>
+    </codeTemplate>
+  </codeTemplates>
+</codeTemplateLibrary>
